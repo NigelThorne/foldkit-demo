@@ -1,0 +1,42 @@
+{
+  "name": "foldkit-demo",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "packageManager": "pnpm@10.34.6",
+  "engines": {
+    "node": ">=22.22.2"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "format": "oxfmt",
+    "test": "vitest run",
+    "test:e2e": "pnpm build && playwright test",
+    "format:check": "oxfmt --check",
+    "lint": "oxlint src"
+  },
+  "dependencies": {
+    "@effect/platform-browser": "4.0.0",
+    "@foldkit/ui": "0.166.0",
+    "effect": "4.0.0",
+    "foldkit": "0.166.0"
+  },
+  "devDependencies": {
+    "@foldkit/devtools": "0.166.0",
+    "@foldkit/devtools-mcp": "0.24.1",
+    "@foldkit/oxlint-plugin": "0.15.2",
+    "@foldkit/vite-plugin": "0.26.1",
+    "@playwright/test": "^1.64.0",
+    "@tailwindcss/vite": "^4.3.3",
+    "happy-dom": "^20.14.5",
+    "oxfmt": "^0.66.0",
+    "oxlint": "^1.85.0",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.1",
+    "vitest": "^5.0.2"
+  }
+}

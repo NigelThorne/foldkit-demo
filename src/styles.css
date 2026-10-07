@@ -1,0 +1,208 @@
+@import 'tailwindcss';
+
+:root {
+  font-family:
+    Inter,
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    sans-serif;
+  color: #eaf3ff;
+  background: #081829;
+  font-synthesis: none;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+.page {
+  min-height: 100svh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 28px;
+  padding: 48px 20px 30px;
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  background:
+    radial-gradient(circle at 85% 9%, #173b5c 0, transparent 38%), #081829;
+}
+
+.ambient {
+  position: absolute;
+  z-index: -1;
+  width: 440px;
+  height: 440px;
+  border: 1px solid #659bcb29;
+  border-radius: 50%;
+  pointer-events: none;
+}
+.ambient-one {
+  top: -250px;
+  left: -170px;
+  box-shadow:
+    0 0 0 70px #659bcb09,
+    0 0 0 140px #659bcb06;
+}
+.ambient-two {
+  bottom: -340px;
+  right: -120px;
+  box-shadow: 0 0 0 85px #659bcb08;
+}
+
+.card {
+  width: min(100%, 590px);
+  padding: clamp(30px, 7vw, 62px);
+  border: 1px solid #8cbde638;
+  border-radius: 28px;
+  background: linear-gradient(150deg, #193653, #10263e 75%);
+  box-shadow:
+    0 28px 80px #020b1880,
+    inset 0 1px #ffffff18;
+}
+
+.eyebrow {
+  margin: 0 0 15px;
+  color: #a8d3ee;
+  font-size: 0.84rem;
+}
+h1 {
+  margin: 0;
+  font-size: clamp(2.2rem, 7vw, 3.25rem);
+  font-weight: 400;
+  line-height: 1.18;
+}
+.lede {
+  margin: 14px 0 0;
+  color: #bbcede;
+  line-height: 1.65;
+}
+
+.count-wrap {
+  display: flex;
+  align-items: baseline;
+  gap: 15px;
+  margin: 42px 0 22px;
+}
+.count {
+  margin: 0;
+  font-size: clamp(5rem, 17vw, 7.5rem);
+  font-weight: 400;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.count-caption {
+  margin: 0;
+  color: #b5cfe2;
+  font-size: 1rem;
+}
+.progress {
+  display: grid;
+  grid-template-columns: repeat(10, minmax(0, 1fr));
+  gap: 9px;
+}
+.dot {
+  height: 12px;
+  border-radius: 99px;
+  background: #53708b;
+  transition:
+    background-color 220ms ease,
+    box-shadow 220ms ease;
+}
+.dot-filled {
+  background: #9ddbf8;
+  box-shadow: 0 0 14px #9ddbf866;
+}
+.status {
+  min-height: 28px;
+  margin: 24px 0 30px;
+  color: #d0e9f8;
+  line-height: 1.5;
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.button {
+  min-height: 48px;
+  border-radius: 13px;
+  padding: 11px 22px;
+  font: inherit;
+  cursor: pointer;
+  transition:
+    background-color 180ms ease,
+    transform 180ms ease;
+}
+.button:hover:not(:disabled) {
+  transform: translateY(-2px);
+}
+.button:focus-visible {
+  outline: 3px solid #bce8ff;
+  outline-offset: 3px;
+}
+.button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.button-primary {
+  border: 1px solid #c7eaff;
+  background: #c7eaff;
+  color: #10263e;
+}
+.button-primary:hover:not(:disabled) {
+  background: #e6f6ff;
+}
+.button-secondary {
+  border: 1px solid #85abc3;
+  background: transparent;
+  color: #eaf3ff;
+}
+.button-secondary:hover:not(:disabled) {
+  background: #ffffff16;
+}
+.refresh-note {
+  margin: 24px 0 0;
+  color: #a8bfd1;
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
+.footer {
+  color: #b2cadd;
+  font-size: 0.8rem;
+  text-align: center;
+}
+
+@media (max-width: 420px) {
+  .card {
+    border-radius: 22px;
+  }
+  .actions {
+    flex-direction: column;
+  }
+  .button {
+    width: 100%;
+  }
+  .progress {
+    gap: 5px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dot,
+  .button {
+    transition: none;
+  }
+  .button:hover:not(:disabled) {
+    transform: none;
+  }
+}

@@ -18,6 +18,28 @@ Open http://127.0.0.1:5188. This builds the frontend and runs the real Worker an
 
 The project pins Node 22.22.2 and pnpm 10.34.6. Plain `pnpm dev` or `pnpm preview` serves only the frontend, so shared sessions will not connect there.
 
+## Run with stack-manager
+
+The committed `.stack-manager.config` runs the same local Miniflare app through Stack Manager. Each stack gets its own Git worktree, dependencies, allocated port and SQLite state. It never copies Cloudflare credentials or invokes Alchemy.
+
+```sh
+stack-manager add /path/to/foldkit-demo --json
+stack-manager up foldkit-demo --name little-wins-local --components app --json
+stack-manager health little-wins-local --json
+stack-manager urls little-wins-local --json
+```
+
+The first available port starts at 21880. Use the URL returned by `urls`, not a hardcoded assumption. The startup command trusts only the current checkout's `mise.toml` for that process, installs the locked dependencies, builds the app and starts Miniflare. Node and pnpm remain pinned by the project.
+
+Stack worktrees live under `../foldkit-demo.worktrees/`. New stacks start from the canonical checkout's committed `HEAD`; uncommitted changes are not copied. Edit the selected worktree, then stop/start to rebuild. This runner serves a production build, not hot reload.
+
+```sh
+stack-manager stop little-wins-local --json
+stack-manager start little-wins-local --json
+```
+
+Stopping preserves that worktree's `.local-state/` and its sessions. Deleting a worktree also deletes its local sessions, so do not run cleanup merely to restart. Local sessions and production sessions are separate even if their UUIDs match.
+
 ## Checks
 
 ```sh

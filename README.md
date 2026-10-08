@@ -40,6 +40,8 @@ stack-manager start little-wins-local --json
 
 Stopping preserves that worktree's `.local-state/` and its sessions. Deleting a worktree also deletes its local sessions, so do not run cleanup merely to restart. Local sessions and production sessions are separate even if their UUIDs match.
 
+Verified on 2026-10-08 using `little-wins-local`: two browsers synchronized concurrent increments, stop released the HTTP listener, restart retained the SQLite count, and a fresh Stack Manager health check passed. The stack was left running at http://127.0.0.1:21880. The initial dependency setup exceeded the readiness deadline; the cached-install startup script and subsequent stop/start were verified. If a stack is marked crashed, stop it before starting it again.
+
 ## Checks
 
 ```sh

@@ -1,48 +1,98 @@
 # Little wins
 
-A Foldkit demo with shared counters. Add up to ten wins, then start again.
+An example app built with **Foldkit, Effect and Cloudflare Durable Objects**, deployed with Alchemy.
 
-Open the app to create a session. Copy its link to another browser or person. Everyone on that link sees the same count live. Each session persists across refreshes and closed browsers. New session creates a separate counter.
+It is a small shared counter: open a session, share its URL, and add up to ten wins together. Every browser on that link sees updates live. Counts survive refreshes, closed browsers and server restarts.
 
-Anyone with the link can read, add or reset wins. There is no login, session list or automatic expiry. Keep links private and do not use this demo for sensitive information. Each session supports up to 32 live connections. Additional browsers cannot edit until a connection becomes available.
+[Try the hosted demo](https://littlewins-website-prod-emrpru6kgj4uf3uk.rapid-bush-3b2c.workers.dev). The hosted version may lag behind this repository.
+
+## What this example demonstrates
+
+- Foldkit's typed Model, Message, update and view architecture.
+- Commands for side effects and a scoped WebSocket subscription.
+- Schema-validated, server-authoritative state with version ordering.
+- Atomic SQLite updates in one Durable Object per session.
+- Reconnection without automatically replaying uncertain mutations.
+- A local Cloudflare runtime with persistent, isolated test data.
+- Infrastructure declared in TypeScript with Alchemy.
+
+This is a learning example, not a production-ready application. Anyone with a session link can read, increment or reset that session. There is no login, session expiry or account-level abuse protection. Each session permits up to 32 live connections. Do not use it for sensitive data.
+
+## Architecture
+
+```text
+Foldkit browser app
+    │ HTTP POST for increment/reset
+    ▼
+Cloudflare Worker
+    │ routes by session UUID
+    ▼
+Durable Object ──► SQLite
+    │
+    └── WebSocket snapshots ──► connected browsers
+```
+
+| Part                 | Technology                              |
+| -------------------- | --------------------------------------- |
+| Frontend             | Foldkit, TypeScript, Effect, CSS        |
+| Request handling     | Cloudflare Workers                      |
+| Session coordination | Durable Objects                         |
+| Persistence          | SQLite inside each Durable Object       |
+| Live updates         | Hibernatable WebSockets                 |
+| Hosting              | Cloudflare Workers Static Assets        |
+| Deployment           | Alchemy                                 |
+| Local backend        | Miniflare and workerd                   |
+| Build                | Vite                                    |
+| Tests                | Vitest, Foldkit Story/Scene, Playwright |
+| Toolchain            | mise and pnpm                           |
+
+The browser is a client-rendered SPA. It does not optimistically change the count. The server commits each update, then broadcasts a versioned snapshot. Clients ignore older snapshots and disable edits while disconnected or awaiting an action response.
 
 ## Run locally
 
+Install [mise](https://mise.jdx.dev/getting-started.html), then:
+
 ```sh
+git clone https://github.com/NigelThorne/foldkit-demo.git
+cd foldkit-demo
+mise trust
 mise install
 mise exec -- pnpm install --frozen-lockfile
 mise exec -- pnpm dev:shared
 ```
 
-Open http://127.0.0.1:5188. This builds the frontend and runs the real Worker and SQLite Durable Object in Miniflare, without cloud access. Restart the command after editing source. Local session state stays in ignored `.local-state/`. Use `PORT` and `SESSION_STATE_DIR` to choose another port or local state directory.
+Open **http://127.0.0.1:5188**. Open the same session URL in another browser to try synchronization.
 
-The project pins Node 22.22.2 and pnpm 10.34.6. Plain `pnpm dev` or `pnpm preview` serves only the frontend, so shared sessions will not connect there.
+This runs the Worker, Durable Objects, SQLite and frontend locally. No Cloudflare account is required. Node 22.22.2 and pnpm 10.34.6 are pinned in `mise.toml`.
 
-## Run with stack-manager
+- Local state is stored in ignored `.local-state/`.
+- Restart the command after source changes. This runner serves a build, not hot reload.
+- Set `PORT` or `SESSION_STATE_DIR` to change the port or local data directory.
+- Plain `pnpm dev` and `pnpm preview` serve only the frontend, without the session backend.
 
-The committed `.stack-manager.config` runs the same local Miniflare app through Stack Manager. Each stack gets its own Git worktree, dependencies, allocated port and SQLite state. It never copies Cloudflare credentials or invokes Alchemy.
+## Optional: isolated stacks
+
+If you have Stack Manager installed, `.stack-manager.config` provides a separate Git worktree, port, dependencies and SQLite state for each stack. Stack Manager is optional and is not included in this repository; the standard local command above works without it.
 
 ```sh
-stack-manager add /path/to/foldkit-demo --json
+stack-manager add "$PWD" --json
 stack-manager up foldkit-demo --name little-wins-local --components app --json
 stack-manager health little-wins-local --json
 stack-manager urls little-wins-local --json
 ```
 
-The first available port starts at 21880. Use the URL returned by `urls`, not a hardcoded assumption. `scripts/start-stack.sh` trusts only the current checkout's `mise.toml` for that process, installs locked dependencies while preferring the local package cache, builds the app and starts Miniflare. Startup output goes to `.local-state/stack-start.log` inside the stack worktree. Node and pnpm remain pinned by the project.
+Ports start at 21880. Use the URL returned by the tool. Worktrees live under `../foldkit-demo.worktrees/` and start from committed `HEAD`; uncommitted changes are not copied.
 
-Stack worktrees live under `../foldkit-demo.worktrees/`. New stacks start from the canonical checkout's committed `HEAD`; uncommitted changes are not copied. Edit the selected worktree, then stop/start to rebuild. This runner serves a production build, not hot reload.
+`scripts/start-stack.sh` installs locked dependencies while preferring the local package cache, builds the app and starts Miniflare. It trusts the current worktree's `mise.toml` for that process. Startup logs are in `.local-state/stack-start.log` inside the worktree.
 
 ```sh
 stack-manager stop little-wins-local --json
 stack-manager start little-wins-local --json
 ```
 
-Stopping preserves that worktree's `.local-state/` and its sessions. Deleting a worktree also deletes its local sessions, so do not run cleanup merely to restart. Local sessions and production sessions are separate even if their UUIDs match.
+Stopping preserves local sessions. Removing the worktree deletes them. Stop a crashed stack before starting it again. Each stack's sessions are separate from other stacks and production, even when their UUIDs match. No Cloudflare credentials are copied and no cloud deployment runs.
 
-Verified on 2026-10-08 using `little-wins-local`: two browsers synchronized concurrent increments, stop released the HTTP listener, restart retained the SQLite count, and a fresh Stack Manager health check passed. The stack was left running at http://127.0.0.1:21880. The initial dependency setup exceeded the readiness deadline; the cached-install startup script and subsequent stop/start were verified. If a stack is marked crashed, stop it before starting it again.
-
-## Checks
+## Tests and checks
 
 ```sh
 mise exec -- pnpm format:check
@@ -54,60 +104,42 @@ mise exec -- pnpm exec playwright install chromium --only-shell
 mise exec -- pnpm test:e2e
 ```
 
-Story and Scene tests check pure state transitions and controls. Backend tests run against real Miniflare SQLite objects, including concurrent writes, WebSocket broadcasts, invalid requests and persistence across runtime restarts.
+The tests cover state transitions, accessible controls, socket cleanup, concurrent writes, session isolation, reconnection, malformed responses, lost HTTP responses and persistence across runtime restarts. Browser tests run in isolated headless Chromium at desktop and mobile sizes. They use port 5188 and do not touch a personal browser or production.
 
-Browser tests use two isolated clients at desktop and mobile sizes. They cover live updates, reset, separate sessions, reload, offline recovery and a committed mutation whose response is lost. They start and stop their own local server on port 5188 and never use your personal browser.
+## Source map
 
-## Structure
+| File                        | Responsibility                                          |
+| --------------------------- | ------------------------------------------------------- |
+| `src/model.ts`              | Tagged session, connection, mutation and failure states |
+| `src/message.ts`            | Typed messages                                          |
+| `src/main.ts`               | Commands, pure init/update and subscription wiring      |
+| `src/view.ts`               | Rendering                                               |
+| `src/session-connection.ts` | Socket ownership, cleanup and reconnects                |
+| `src/shared/session.ts`     | Shared session ID and snapshot validation               |
+| `src/entry.ts`              | Browser runtime startup                                 |
+| `server/worker.ts`          | HTTP API and SQLite Durable Object                      |
+| `scripts/local-server.mjs`  | Local Miniflare runtime                                 |
+| `alchemy.run.ts`            | Cloudflare infrastructure                               |
 
-- `src/model.ts` defines tagged session, connection, mutation and failure states.
-- `src/message.ts` owns the typed messages shared by update and subscriptions.
-- `src/main.ts` contains Commands, pure init/update and subscription wiring.
-- `src/session-connection.ts` owns socket lifetimes, cleanup and bounded reconnects.
-- `src/view.ts` renders the model without side effects.
-- `src/entry.ts` supplies the browser URL and starts Foldkit.
-- `src/shared/session.ts` validates session IDs and snapshots.
-- `server/worker.ts` handles same-origin API requests and exports `WinSession`.
-- `scripts/local-server.mjs` bundles the Worker and starts Miniflare with local assets and persistence.
-- `public/_headers` prevents bearer session URLs leaking in referrer headers.
+## Deploy your own copy
 
-One SQLite-backed Durable Object owns each UUID session. Atomic updates increment a version and broadcast authoritative snapshots. Clients never optimistically change the count or replay mutations. They ignore older snapshots, disable editing while disconnected or pending, and reconnect to resolve uncertain outcomes. HTTP actions time out after ten seconds.
+Alchemy is pinned to `2.0.0-beta.81`; its APIs and Foldkit's APIs may change. The Effect-related dependency versions and overrides are intentional. Check compatibility before upgrading them separately.
 
-Foldkit 0.166.0 and Effect 4.0.0 are pinned. This is browser-rendered, not an SSR/SSG proof. The DevTools MCP relay is disabled. The native Cloudflare HTTP/WebSocket boundary uses platform APIs; the frontend retains Foldkit's pure Model/update/view architecture.
-
-## Cloudflare deployment with Alchemy
-
-Existing live URL: [Little wins](https://littlewins-website-prod-emrpru6kgj4uf3uk.rapid-bush-3b2c.workers.dev)
-
-The shared-session release `fa83dc4` is live after explicit approval on 2026-10-08. Two isolated browsers verified concurrent increments, shared reset, reconnect, separate sessions, the ten-win cap and persistence after closing both clients. Cross-origin writes were rejected, and the mobile layout had no horizontal overflow or browser errors. Two disposable smoke-test sessions remain stored.
-
-`alchemy.run.ts` preserves the `LittleWins` stack, `Website` logical resource and existing Worker URL. The update adds the Worker entry point, `SESSIONS` binding and SQLite Durable Object class `WinSession`. API routes run the Worker first; static assets retain Cloudflare asset serving.
-
-Target the personal Cloudflare account `bcd94aafc110a8c2e44a1d013e7e0081`, profile `default`, stage `prod`. Never add a paid service or upgrade billing implicitly.
+The deployment declares a `LittleWins` stack with one `Website` Worker, a `SESSIONS` binding and a SQLite-backed `WinSession` Durable Object class. Static assets are served directly; `/api/*` routes invoke the Worker.
 
 ```sh
 mise exec -- pnpm cloudflare:login
 mise exec -- pnpm cloudflare:plan
-# Only after reviewing the account, exact plan and receiving approval:
+# Review the target account, prod stage, resources and costs first.
 mise exec -- pnpm cloudflare:deploy
 ```
 
-Login is interactive. `ALCHEMY_TUI=1` works around Alchemy mistaking Pi in PATH for a non-interactive session. It is not deployment approval. Never print or commit credentials.
+These commands use your Alchemy `default` profile and the `prod` stage. Authenticate to your own Cloudflare account. The login script enables Alchemy's interactive UI; it does not approve deployment. No credentials or deployment state are included in this repository.
 
-### Costs and limits
+SQLite Durable Objects are compatible with Workers Free, but requests, compute and storage have quotas. Free-plan operations fail when quotas are exhausted; paid plans have included usage and overage charges. Review [Workers pricing](https://developers.cloudflare.com/workers/platform/pricing/) and [Durable Objects pricing](https://developers.cloudflare.com/durable-objects/platform/pricing/) before deploying.
 
-SQLite Durable Objects work on Workers Free. Published free limits include 100,000 Durable Object requests per day, 13,000 GB-seconds per day, 100,000 rows written per day, 5 million rows read per day and 5 GB stored. The entry Worker also has request/CPU quotas. These are account-wide allowances, not this app's private allocation.
+### Keep deployment state private
 
-On the Free plan, operations fail when quotas are exhausted rather than automatically upgrading billing. Existing paid accounts have different allowances and overage charges. This configuration does not change the account plan. Hibernatable WebSockets avoid idle-duration charging; small demo traffic should fit the free allowances. Public abuse can still exhaust them. Persistent sessions consume storage until explicitly removed.
+Alchemy state lives in ignored `.alchemy/state/`. Back it up privately before and after deployments. Never commit `.alchemy/`, `.env` files, private keys or local SQLite databases. Do not delete deployment state to recover from an error or run concurrent deployments.
 
-See [Durable Objects pricing](https://developers.cloudflare.com/durable-objects/platform/pricing/).
-
-### State and recovery
-
-Alchemy state stays in ignored `.alchemy/state/`. Local-only backups include `.alchemy/backups/first-deploy/`, `.alchemy/backups/pre-sessions-20261008-113016/` and `.alchemy/backups/shared-sessions-20261008-113116/`. Keep another private backup before and after subsequent deployments. Never delete state, run concurrent deployments or deploy from another checkout without the state.
-
-After an approved release, check the emitted URL and two disposable sessions for live synchronization, reset, isolation and refresh persistence. These smoke tests write session data and must be included in release approval.
-
-After sessions exist, rollback must keep the `WinSession` export, `SESSIONS` binding and storage migration intact. Roll back the frontend or change application behavior without removing the Durable Object class. Do not redeploy the original assets-only infrastructure as a shortcut, because removing the class can delete session data. Destruction and data deletion require separate approval.
-
-Alchemy is pinned to `2.0.0-beta.81`. TypeScript 6 satisfies its Cloudflare tooling peer range. SQL driver overrides keep transitive dependencies on Effect 4.0.0, matching Foldkit. Recheck these pins when upgrading.
+Once sessions exist, a rollback must retain the `WinSession` export, `SESSIONS` binding and storage migrations. Reverting to an assets-only infrastructure definition can delete session data. Roll back application behavior without removing those resources.

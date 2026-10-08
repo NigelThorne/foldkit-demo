@@ -16,6 +16,19 @@ test-results/
 .env.local
 .env.*.local
 
+# Private keys and local database exports
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa
+id_ed25519
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.db
+*.db-*
+
 # IDE
 .vscode/
 .idea/

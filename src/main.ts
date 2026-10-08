@@ -1,43 +1,23 @@
-import { Effect, Option, Queue, Schema, Stream } from 'effect'
+import { Effect, Option, Schema, Stream } from 'effect'
 import { Command, Subscription, type Update } from 'foldkit'
-import { Document, HtmlBuilder } from 'foldkit/html'
-import { defineMessageUnion } from 'foldkit/message'
 import { modifyFields } from 'foldkit/struct'
 
+import { Message } from './message'
+import {
+  Connection,
+  Copy,
+  Failure,
+  Model,
+  Mutation,
+  Session,
+  activeSession,
+  maybeSnapshot,
+} from './model'
+import { sessionStream } from './session-connection'
 import { MAX_WINS, SessionState, isSessionId } from './shared/session'
+import { view } from './view'
 
-// MODEL
-const Connection = Schema.Literals(['Connecting', 'Live', 'Offline'])
-export const Model = Schema.Struct({
-  sessionId: Schema.Option(Schema.String),
-  invalidSession: Schema.Boolean,
-  snapshot: Schema.Option(SessionState),
-  connection: Connection,
-  pending: Schema.Boolean,
-  reconnectEpoch: Schema.Number,
-  error: Schema.Option(Schema.String),
-  copied: Schema.Boolean,
-  shareUrl: Schema.String,
-})
-export type Model = typeof Model.Type
-
-// MESSAGE
-export const Message = defineMessageUnion({
-  CompletedCreateSession: { sessionId: Schema.String, shareUrl: Schema.String },
-  FailedCreateSession: {},
-  ClickedNewSession: {},
-  ClickedCopyLink: {},
-  CompletedCopyLink: {},
-  FailedCopyLink: {},
-  ConnectedSession: { sessionId: Schema.String },
-  DisconnectedSession: { sessionId: Schema.String },
-  ReceivedSnapshot: { sessionId: Schema.String, snapshot: SessionState },
-  ClickedIncrement: {},
-  ClickedReset: {},
-  SucceededMutate: { sessionId: Schema.String, snapshot: SessionState },
-  FailedMutate: { sessionId: Schema.String },
-})
-export type Message = typeof Message.Type
+export { Message, Model, view }
 
 // COMMAND
 const CreateSession = Command.define('CreateSession', {
@@ -50,21 +30,29 @@ const CreateSession = Command.define('CreateSession', {
       window.history.replaceState(null, '', url)
       return Message.CompletedCreateSession({ sessionId, shareUrl: url.href })
     },
-    catch: () => undefined,
-  }).pipe(Effect.catch(() => Effect.succeed(Message.FailedCreateSession()))),
+    catch: () => Failure.Network(),
+  }).pipe(
+    Effect.catch(failure =>
+      Effect.succeed(Message.FailedCreateSession({ failure })),
+    ),
+  ),
 })
 export const OpenNewSession = Command.define('OpenNewSession', {
-  messages: [Message.CompletedCreateSession, Message.FailedCreateSession],
+  messages: [Message.FailedCreateSession],
   execute: Effect.try({
     try: () => {
       const sessionId = crypto.randomUUID()
       const url = new URL(window.location.href)
       url.searchParams.set('session', sessionId)
       window.location.assign(url.href)
-      return Message.CompletedCreateSession({ sessionId, shareUrl: url.href })
     },
-    catch: () => undefined,
-  }).pipe(Effect.catch(() => Effect.succeed(Message.FailedCreateSession()))),
+    catch: () => Failure.Network(),
+  }).pipe(
+    Effect.flatMap(() => Effect.never),
+    Effect.catch(failure =>
+      Effect.succeed(Message.FailedCreateSession({ failure })),
+    ),
+  ),
 })
 export const CopyLink = Command.define('CopyLink', {
   args: { shareUrl: Schema.String },
@@ -78,6 +66,17 @@ export const CopyLink = Command.define('CopyLink', {
       Effect.catch(() => Effect.succeed(Message.FailedCopyLink())),
     ),
 })
+
+const requestFailure = (error: unknown): Failure => {
+  if (error instanceof DOMException && error.name === 'TimeoutError') {
+    return Failure.Timeout()
+  }
+  if (error instanceof Error && error.name === 'TimeoutError') {
+    return Failure.Timeout()
+  }
+  return Failure.Network()
+}
+
 export const Mutate = Command.define('Mutate', {
   args: {
     sessionId: Schema.String,
@@ -94,14 +93,30 @@ export const Mutate = Command.define('Mutate', {
           signal: AbortSignal.any([signal, AbortSignal.timeout(10000)]),
         })
         if (!response.ok) {
-          throw new Error('Action not confirmed')
+          return Message.FailedMutate({
+            sessionId,
+            failure: Failure.Http({ status: response.status }),
+          })
         }
-        const snapshot = Schema.decodeSync(SessionState)(await response.json())
-        return Message.SucceededMutate({ sessionId, snapshot })
+        let payload: unknown
+        try {
+          payload = await response.json()
+          return Message.SucceededMutate({
+            sessionId,
+            snapshot: Schema.decodeUnknownSync(SessionState)(payload),
+          })
+        } catch {
+          return Message.FailedMutate({
+            sessionId,
+            failure: Failure.InvalidResponse(),
+          })
+        }
       },
-      catch: () => undefined,
+      catch: requestFailure,
     }).pipe(
-      Effect.catch(() => Effect.succeed(Message.FailedMutate({ sessionId }))),
+      Effect.catch(failure =>
+        Effect.succeed(Message.FailedMutate({ sessionId, failure })),
+      ),
     ),
 })
 
@@ -109,131 +124,170 @@ export const Mutate = Command.define('Mutate', {
 export const init = (href: string) => {
   const url = new URL(href)
   const sessionId = url.searchParams.get('session')
-  const valid = sessionId !== null && isSessionId(sessionId)
   const model: Model = {
-    sessionId: valid ? Option.some(sessionId) : Option.none(),
-    invalidSession: sessionId !== null && !valid,
-    snapshot: Option.none(),
-    connection: 'Connecting',
-    pending: false,
-    reconnectEpoch: 0,
-    error: Option.none(),
-    copied: false,
-    shareUrl: valid ? url.href : '',
+    session:
+      sessionId === null
+        ? Session.Creating({ maybeFailure: Option.none() })
+        : isSessionId(sessionId)
+          ? activeSession(sessionId, url.href)
+          : Session.Invalid(),
   }
   return sessionId === null ? { model, commands: [CreateSession()] } : { model }
 }
 
 // UPDATE
-const matches = (model: Model, sessionId: string) =>
-  Option.isSome(model.sessionId) && model.sessionId.value === sessionId
-const canMutate = (model: Model) =>
-  model.connection === 'Live' && Option.isSome(model.snapshot) && !model.pending
-const applySnapshot = (model: Model, snapshot: SessionState) =>
-  Option.isNone(model.snapshot) ||
-  snapshot.version >= model.snapshot.value.version
-    ? modifyFields(model, { snapshot: () => Option.some(snapshot) })
+const updateActive = (
+  model: Model,
+  sessionId: string,
+  updateSession: (session: Extract<Session, { _tag: 'Active' }>) => Session,
+): Model => {
+  const session = model.session
+  return session._tag === 'Active' && session.sessionId === sessionId
+    ? modifyFields(model, { session: () => updateSession(session) })
     : model
+}
+
+const newestSnapshot = (connection: Connection, snapshot: SessionState) => {
+  const previous = maybeSnapshot(connection)
+  return Option.isNone(previous) || snapshot.version >= previous.value.version
+    ? snapshot
+    : previous.value
+}
+
+const applySnapshot = (
+  connection: Connection,
+  snapshot: SessionState,
+): Connection => {
+  const latest = newestSnapshot(connection, snapshot)
+  return Connection.match(connection, {
+    Connecting: () =>
+      Connection.Connecting({ maybeSnapshot: Option.some(latest) }),
+    Offline: () => Connection.Offline({ maybeSnapshot: Option.some(latest) }),
+    Live: () => Connection.Live({ snapshot: latest }),
+  })
+}
+
+const startMutation = (
+  model: Model,
+  action: 'increment' | 'reset',
+): Update.Return<Model, Message> => {
+  const session = model.session
+  if (
+    session._tag !== 'Active' ||
+    session.connection._tag !== 'Live' ||
+    session.mutation._tag !== 'Idle'
+  ) {
+    return { model }
+  }
+  const count = session.connection.snapshot.count
+  if (action === 'increment' ? count >= MAX_WINS : count === 0) {
+    return { model }
+  }
+  return {
+    model: modifyFields(model, {
+      session: () =>
+        modifyFields(session, { mutation: () => Mutation.Pending() }),
+    }),
+    commands: [Mutate({ sessionId: session.sessionId, action })],
+  }
+}
 
 export const update = (model: Model, message: Message) =>
   Message.match<Update.Return<Model, Message>>(message, {
     CompletedCreateSession: ({ sessionId, shareUrl }) => ({
-      model: modifyFields(model, {
-        sessionId: () => Option.some(sessionId),
-        invalidSession: () => false,
-        shareUrl: () => shareUrl,
-        snapshot: () => Option.none(),
-        connection: () => 'Connecting' as const,
-        error: () => Option.none(),
-        pending: () => false,
-      }),
+      model:
+        model.session._tag === 'Creating'
+          ? modifyFields(model, {
+              session: () => activeSession(sessionId, shareUrl),
+            })
+          : model,
     }),
-    FailedCreateSession: () => ({
-      model: modifyFields(model, {
-        error: () => Option.some('Could not create a session. Try again.'),
-      }),
+    FailedCreateSession: ({ failure }) => ({
+      model:
+        model.session._tag === 'Creating'
+          ? modifyFields(model, {
+              session: () =>
+                Session.Creating({ maybeFailure: Option.some(failure) }),
+            })
+          : model,
     }),
     ClickedNewSession: () => ({ model, commands: [OpenNewSession()] }),
-    ClickedCopyLink: () => ({
-      model,
-      commands: model.shareUrl ? [CopyLink({ shareUrl: model.shareUrl })] : [],
-    }),
+    ClickedCopyLink: () =>
+      model.session._tag === 'Active'
+        ? {
+            model,
+            commands: [CopyLink({ shareUrl: model.session.shareUrl })],
+          }
+        : { model },
     CompletedCopyLink: () => ({
-      model: modifyFields(model, { copied: () => true }),
+      model: modifyFields(model, {
+        session: session =>
+          session._tag === 'Active'
+            ? modifyFields(session, { copy: () => Copy.Copied() })
+            : session,
+      }),
     }),
     FailedCopyLink: () => ({
       model: modifyFields(model, {
-        error: () =>
-          Option.some('Copy failed. Select the link below to share it.'),
+        session: session =>
+          session._tag === 'Active'
+            ? modifyFields(session, { copy: () => Copy.Failed() })
+            : session,
       }),
     }),
     ConnectedSession: ({ sessionId }) => ({
-      model: matches(model, sessionId)
-        ? modifyFields(model, { connection: () => 'Connecting' as const })
-        : model,
+      model: updateActive(model, sessionId, session =>
+        modifyFields(session, {
+          connection: connection =>
+            Connection.Connecting({ maybeSnapshot: maybeSnapshot(connection) }),
+        }),
+      ),
     }),
     DisconnectedSession: ({ sessionId }) => ({
-      model: matches(model, sessionId)
-        ? modifyFields(model, { connection: () => 'Offline' as const })
-        : model,
+      model: updateActive(model, sessionId, session =>
+        modifyFields(session, {
+          connection: connection =>
+            Connection.Offline({ maybeSnapshot: maybeSnapshot(connection) }),
+        }),
+      ),
     }),
     ReceivedSnapshot: ({ sessionId, snapshot }) => ({
-      model: matches(model, sessionId)
-        ? modifyFields(applySnapshot(model, snapshot), {
-            connection: () => 'Live' as const,
-            error: () => Option.none(),
-          })
-        : model,
+      model: updateActive(model, sessionId, session =>
+        modifyFields(session, {
+          connection: connection =>
+            Connection.Live({ snapshot: newestSnapshot(connection, snapshot) }),
+          maybeConnectionFailure: () => Option.none(),
+        }),
+      ),
     }),
-    ClickedIncrement: () => ({
-      model:
-        canMutate(model) &&
-        Option.isSome(model.sessionId) &&
-        Option.isSome(model.snapshot) &&
-        model.snapshot.value.count < MAX_WINS
-          ? modifyFields(model, { pending: () => true })
-          : model,
-      commands:
-        canMutate(model) &&
-        Option.isSome(model.sessionId) &&
-        Option.isSome(model.snapshot) &&
-        model.snapshot.value.count < MAX_WINS
-          ? [Mutate({ sessionId: model.sessionId.value, action: 'increment' })]
-          : [],
+    ReceivedInvalidSnapshot: ({ sessionId }) => ({
+      model: updateActive(model, sessionId, session =>
+        modifyFields(session, {
+          maybeConnectionFailure: () => Option.some(Failure.InvalidResponse()),
+        }),
+      ),
     }),
-    ClickedReset: () => ({
-      model:
-        canMutate(model) &&
-        Option.isSome(model.sessionId) &&
-        Option.isSome(model.snapshot) &&
-        model.snapshot.value.count > 0
-          ? modifyFields(model, { pending: () => true })
-          : model,
-      commands:
-        canMutate(model) &&
-        Option.isSome(model.sessionId) &&
-        Option.isSome(model.snapshot) &&
-        model.snapshot.value.count > 0
-          ? [Mutate({ sessionId: model.sessionId.value, action: 'reset' })]
-          : [],
-    }),
+    ClickedIncrement: () => startMutation(model, 'increment'),
+    ClickedReset: () => startMutation(model, 'reset'),
     SucceededMutate: ({ sessionId, snapshot }) => ({
-      model: matches(model, sessionId)
-        ? modifyFields(applySnapshot(model, snapshot), { pending: () => false })
-        : model,
+      model: updateActive(model, sessionId, session =>
+        modifyFields(session, {
+          connection: connection => applySnapshot(connection, snapshot),
+          mutation: () => Mutation.Idle(),
+          maybeMutationFailure: () => Option.none(),
+        }),
+      ),
     }),
-    FailedMutate: ({ sessionId }) => ({
-      model: matches(model, sessionId)
-        ? modifyFields(model, {
-            pending: () => false,
-            reconnectEpoch: epoch => epoch + 1,
-            connection: () => 'Offline' as const,
-            error: () =>
-              Option.some(
-                'Action not confirmed. Reconnecting to check the current count; please do not retry yet.',
-              ),
-          })
-        : model,
+    FailedMutate: ({ sessionId, failure }) => ({
+      model: updateActive(model, sessionId, session =>
+        modifyFields(session, {
+          mutation: () => Mutation.Idle(),
+          reconnectEpoch: epoch => epoch + 1,
+          connection: connection =>
+            Connection.Offline({ maybeSnapshot: maybeSnapshot(connection) }),
+          maybeMutationFailure: () => Option.some(failure),
+        }),
+      ),
     }),
   })
 
@@ -242,10 +296,18 @@ export const subscriptions = Subscription.make<Model, Message>()(entry => ({
   session: entry(
     { sessionId: Schema.Option(Schema.String), reconnectEpoch: Schema.Number },
     {
-      modelToDependencies: model => ({
-        sessionId: model.sessionId,
-        reconnectEpoch: model.reconnectEpoch,
-      }),
+      modelToDependencies: model =>
+        Session.match(model.session, {
+          Creating: () => ({
+            sessionId: Option.none(),
+            reconnectEpoch: 0,
+          }),
+          Invalid: () => ({ sessionId: Option.none(), reconnectEpoch: 0 }),
+          Active: ({ sessionId, reconnectEpoch }) => ({
+            sessionId: Option.some(sessionId),
+            reconnectEpoch,
+          }),
+        }),
       dependenciesToStream: ({ sessionId }) =>
         Option.isSome(sessionId)
           ? sessionStream(sessionId.value)
@@ -253,224 +315,3 @@ export const subscriptions = Subscription.make<Model, Message>()(entry => ({
     },
   ),
 }))
-
-const sessionStream = (sessionId: string): Stream.Stream<Message> =>
-  Stream.callback<Message>(queue =>
-    Effect.gen(function* () {
-      let active = true
-      let socket: WebSocket | undefined
-      const onOffline = () => {
-        socket?.close()
-        void Effect.runPromise(
-          Queue.offer(queue, Message.DisconnectedSession({ sessionId })),
-        )
-      }
-      const onOnline = () => socket?.close()
-      window.addEventListener('offline', onOffline)
-      window.addEventListener('online', onOnline)
-      yield* Effect.addFinalizer(() =>
-        Effect.sync(() => {
-          active = false
-          socket?.close()
-          window.removeEventListener('offline', onOffline)
-          window.removeEventListener('online', onOnline)
-        }),
-      )
-      yield* Effect.forkScoped(
-        Effect.gen(function* () {
-          let delay = 250
-          while (active) {
-            if (!navigator.onLine) {
-              yield* Queue.offer(
-                queue,
-                Message.DisconnectedSession({ sessionId }),
-              )
-              yield* Effect.sleep('500 millis')
-              continue
-            }
-            yield* Queue.offer(queue, Message.ConnectedSession({ sessionId }))
-            yield* Effect.callback<void>(resume => {
-              const protocol =
-                window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-              socket = new WebSocket(
-                `${protocol}//${window.location.host}/api/sessions/${sessionId}`,
-              )
-              socket.onmessage = event => {
-                try {
-                  const snapshot = Schema.decodeSync(SessionState)(
-                    JSON.parse(event.data),
-                  )
-                  void Effect.runPromise(
-                    Queue.offer(
-                      queue,
-                      Message.ReceivedSnapshot({ sessionId, snapshot }),
-                    ),
-                  )
-                  delay = 250
-                } catch {
-                  socket?.close()
-                }
-              }
-              socket.onclose = () => resume(Effect.void)
-              socket.onerror = () => socket?.close()
-              return Effect.sync(() => socket?.close())
-            })
-            if (active) {
-              yield* Queue.offer(
-                queue,
-                Message.DisconnectedSession({ sessionId }),
-              )
-              yield* Effect.sleep(`${delay} millis`)
-              delay = Math.min(delay * 2, 5000)
-            }
-          }
-        }),
-      )
-    }),
-  )
-
-// VIEW
-export const view = (model: Model, h: HtmlBuilder<Message>): Document => {
-  const count = Option.isSome(model.snapshot) ? model.snapshot.value.count : 0
-  return {
-    title: `Little wins · ${count} of ${MAX_WINS}`,
-    body: h.main(
-      [h.Class('page')],
-      [
-        h.div([h.Class('ambient ambient-one'), h.AriaHidden(true)]),
-        h.div([h.Class('ambient ambient-two'), h.AriaHidden(true)]),
-        h.section(
-          [h.Class('card'), h.AriaLabel('Little wins tracker')],
-          [
-            h.header(
-              [h.Class('intro')],
-              [
-                h.p([h.Class('eyebrow')], ['A moment for the good stuff']),
-                h.h1([], ['Little wins']),
-                h.p(
-                  [h.Class('lede')],
-                  ['Small steps count. Give each one its place.'],
-                ),
-              ],
-            ),
-            model.invalidSession
-              ? h.div(
-                  [],
-                  [
-                    h.p([h.Role('alert')], ['This session link is invalid.']),
-                    h.button(
-                      [
-                        h.Class('button button-primary'),
-                        h.OnClick(Message.ClickedNewSession()),
-                      ],
-                      ['New session'],
-                    ),
-                  ],
-                )
-              : h.div(
-                  [],
-                  [
-                    h.p(
-                      [h.Class('connection'), h.AriaLive('polite')],
-                      [model.connection],
-                    ),
-                    h.div(
-                      [h.Class('count-wrap')],
-                      [
-                        h.p(
-                          [h.Class('count')],
-                          [Option.isSome(model.snapshot) ? String(count) : '—'],
-                        ),
-                        h.p(
-                          [h.Class('count-caption')],
-                          [`of ${MAX_WINS} wins`],
-                        ),
-                      ],
-                    ),
-                    h.div(
-                      [
-                        h.Class('progress'),
-                        h.Role('progressbar'),
-                        h.AriaLabel('Wins this round'),
-                        h.AriaValuemin(0),
-                        h.AriaValuemax(MAX_WINS),
-                        h.AriaValuenow(count),
-                      ],
-                      Array.from({ length: MAX_WINS }, (_, index) =>
-                        h.span([
-                          h.Class(index < count ? 'dot dot-filled' : 'dot'),
-                          h.AriaHidden(true),
-                        ]),
-                      ),
-                    ),
-                    h.p(
-                      [h.Class('status'), h.AriaLive('polite')],
-                      [
-                        count === MAX_WINS
-                          ? 'Ten little wins. Nicely done.'
-                          : count === 0
-                            ? 'Your next win starts here.'
-                            : `${count} of ${MAX_WINS} wins. Keep going.`,
-                      ],
-                    ),
-                    h.div(
-                      [h.Class('actions')],
-                      [
-                        h.button(
-                          [
-                            h.Class('button button-primary'),
-                            h.OnClick(Message.ClickedIncrement()),
-                            h.Disabled(!canMutate(model) || count === MAX_WINS),
-                          ],
-                          ['Add a win'],
-                        ),
-                        h.button(
-                          [
-                            h.Class('button button-secondary'),
-                            h.OnClick(Message.ClickedReset()),
-                            h.Disabled(!canMutate(model) || count === 0),
-                          ],
-                          ['Start again'],
-                        ),
-                      ],
-                    ),
-                    Option.isSome(model.error)
-                      ? h.p([h.Role('alert')], [model.error.value])
-                      : h.empty,
-                    h.div(
-                      [h.Class('share')],
-                      [
-                        h.p(
-                          [],
-                          ['Anyone with this link can add or reset wins.'],
-                        ),
-                        h.button(
-                          [
-                            h.Class('button button-secondary'),
-                            h.OnClick(Message.ClickedCopyLink()),
-                            h.Disabled(!model.shareUrl),
-                          ],
-                          [model.copied ? 'Copied!' : 'Copy link'],
-                        ),
-                        h.p([h.Class('share-url')], [model.shareUrl]),
-                        h.button(
-                          [
-                            h.Class('button button-secondary'),
-                            h.OnClick(Message.ClickedNewSession()),
-                          ],
-                          ['New session'],
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-          ],
-        ),
-        h.footer(
-          [h.Class('footer')],
-          ['Built with Foldkit · TypeScript + Effect'],
-        ),
-      ],
-    ),
-  }
-}

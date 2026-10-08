@@ -108,6 +108,97 @@ test('rejects malformed session links and offers a new session', async ({
   await expect(page.getByRole('button', { name: 'Add a win' })).toBeEnabled()
 })
 
+test('keeps clipboard failure visible when another person updates the count', async ({
+  page,
+  request,
+}) => {
+  const id = randomUUID()
+  const base = 'http://127.0.0.1:5188'
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: {
+        writeText: () =>
+          Promise.reject(new DOMException('Denied', 'NotAllowedError')),
+      },
+    })
+  })
+  await page.goto(`/?session=${id}`)
+  await expect(page.getByRole('button', { name: 'Add a win' })).toBeEnabled()
+  await page.getByRole('button', { name: 'Copy link' }).click()
+  await expect(page.getByRole('alert')).toContainText(/copy/i)
+  const update = await request.post(`${base}/api/sessions/${id}/increment`, {
+    data: {},
+    headers: { Origin: base },
+  })
+  expect(update.status()).toBe(200)
+  await expect(page.getByText('1', { exact: true })).toBeVisible()
+  await expect(page.getByRole('alert')).toContainText(/copy/i)
+})
+
+test('keeps an in-flight mutation gated across a WebSocket reconnect', async ({
+  page,
+}) => {
+  const id = randomUUID()
+  let releaseResponse = () => {}
+  const heldResponse = new Promise<void>(resolve => {
+    releaseResponse = resolve
+  })
+  let attempts = 0
+  await page.route(`**/api/sessions/${id}/increment`, async route => {
+    attempts += 1
+    const response = await route.fetch()
+    await heldResponse
+    await route.fulfill({ response })
+  })
+  try {
+    await page.goto(`/?session=${id}`)
+    const add = page.getByRole('button', { name: 'Add a win' })
+    await expect(add).toBeEnabled()
+    await add.click()
+    await expect(page.getByText('1', { exact: true })).toBeVisible()
+    await expect(add).toBeDisabled()
+    const reconnected = page.waitForEvent('websocket')
+    await page.evaluate(() => window.dispatchEvent(new Event('offline')))
+    await reconnected
+    await expect(page.getByText('Live', { exact: true })).toBeVisible({
+      timeout: 5000,
+    })
+    await expect(add).toBeDisabled()
+    releaseResponse()
+    await expect(add).toBeEnabled()
+    expect(attempts).toBe(1)
+    await expect(page.getByText('1', { exact: true })).toBeVisible()
+  } finally {
+    releaseResponse()
+  }
+})
+
+test('recovers from an invalid mutation response without replaying the action', async ({
+  page,
+}) => {
+  const id = randomUUID()
+  let attempts = 0
+  await page.route(`**/api/sessions/${id}/increment`, async route => {
+    attempts += 1
+    await route.fetch()
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: '{"count":"invalid","version":1}',
+    })
+  })
+  await page.goto(`/?session=${id}`)
+  const add = page.getByRole('button', { name: 'Add a win' })
+  await expect(add).toBeEnabled()
+  await add.click()
+  await expect(page.getByText('1', { exact: true })).toBeVisible()
+  await expect(add).toBeEnabled({ timeout: 15000 })
+  expect(attempts).toBe(1)
+  await page.reload()
+  await expect(page.getByText('1', { exact: true })).toBeVisible()
+})
+
 test('stops at ten for both people', async ({ page, request }) => {
   const id = randomUUID()
   const base = 'http://127.0.0.1:5188'

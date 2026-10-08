@@ -36,7 +36,11 @@ Browser tests use two isolated clients at desktop and mobile sizes. They cover l
 
 ## Structure
 
-- `src/main.ts` defines the Schema Model, Messages, pure init/update/view, Commands and scoped WebSocket Subscription.
+- `src/model.ts` defines tagged session, connection, mutation and failure states.
+- `src/message.ts` owns the typed messages shared by update and subscriptions.
+- `src/main.ts` contains Commands, pure init/update and subscription wiring.
+- `src/session-connection.ts` owns socket lifetimes, cleanup and bounded reconnects.
+- `src/view.ts` renders the model without side effects.
 - `src/entry.ts` supplies the browser URL and starts Foldkit.
 - `src/shared/session.ts` validates session IDs and snapshots.
 - `server/worker.ts` handles same-origin API requests and exports `WinSession`.

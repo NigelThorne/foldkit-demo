@@ -170,11 +170,26 @@ h1 {
 .button-secondary:hover:not(:disabled) {
   background: #ffffff16;
 }
-.refresh-note {
-  margin: 24px 0 0;
-  color: #a8bfd1;
-  font-size: 0.84rem;
-  line-height: 1.5;
+.connection {
+  margin: 22px 0 0;
+  color: #bce8ff;
+  font-size: 0.9rem;
+}
+.share {
+  margin-top: 30px;
+  border-top: 1px solid #8cbde638;
+  padding-top: 22px;
+  color: #b5cfe2;
+  line-height: 1.6;
+}
+.share .button {
+  margin: 6px 10px 6px 0;
+}
+.share-url {
+  overflow-wrap: anywhere;
+  user-select: text;
+  font-size: 0.85rem;
+  color: #d0e9f8;
 }
 .footer {
   color: #b2cadd;

@@ -40,6 +40,10 @@ Foldkit 0.166.0 and Effect 4.0.0 are pinned. This is a browser-rendered demo, no
 
 ## Cloudflare deployment with Alchemy
 
+Live demo: [Little wins](https://littlewins-website-prod-emrpru6kgj4uf3uk.rapid-bush-3b2c.workers.dev)
+
+Deployed to the approved personal account ending `0081`. Live HTTP, rendering, ten-win limit and reset checks passed. First-deploy state is backed up locally under `.alchemy/backups/first-deploy/`; this is not an off-machine backup.
+
 `alchemy.run.ts` declares one assets-only Foldkit website. It uses the `LittleWins` stack, the `prod` stage and the `default` authentication profile. Confirm that profile is your personal Cloudflare account before deploying.
 
 ```sh

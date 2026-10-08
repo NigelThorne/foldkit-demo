@@ -36,4 +36,23 @@ mise exec -- pnpm test:e2e
 - `src/scene.test.ts` checks interactions through Foldkit's view tree.
 - `e2e/wins.spec.ts` checks the built app, keyboard input, reset, reload and horizontal overflow.
 
-Foldkit 0.166.0 and Effect 4.0.0 are pinned. This is a browser-rendered demo, not an SSR/SSG proof. No Alchemy setup or deployment is included. The DevTools MCP relay is disabled.
+Foldkit 0.166.0 and Effect 4.0.0 are pinned. This is a browser-rendered demo, not an SSR/SSG proof. The DevTools MCP relay is disabled.
+
+## Cloudflare deployment with Alchemy
+
+`alchemy.run.ts` declares one assets-only Foldkit website. It uses the `LittleWins` stack, the `prod` stage and the `default` authentication profile. Confirm that profile is your personal Cloudflare account before deploying.
+
+```sh
+mise exec -- pnpm cloudflare:login
+mise exec -- pnpm cloudflare:plan
+# Only after reviewing the account and exact plan:
+mise exec -- pnpm cloudflare:deploy
+```
+
+Login is interactive. Never paste credentials into chat or commit them. No billing upgrade, domain purchase, database, R2 bucket or cloud state service is configured. Cloudflare currently serves static assets with free unlimited requests and no storage charge. Extra server code or services would need a separate cost review.
+
+State stays in the ignored `.alchemy/state/` directory. Keep a private backup after deployment; never delete it to fix an error or deploy from another checkout without the state. Do not run concurrent deployments. This local-state approach is for this solo demo, not shared CI.
+
+Before release, run all checks above. After release, open the emitted URL and verify the count, limit and reset. For an update rollback, restore the prior application revision, rebuild and deploy using the same state/profile/stage after approval. Removing the demo uses `alchemy destroy --stage prod --profile default` only after explicit deletion approval.
+
+Alchemy is pinned to `2.0.0-beta.81`. TypeScript 6 satisfies its Cloudflare tooling's peer range. The SQL driver overrides keep Alchemy's transitive dependencies on Effect 4.0.0, matching Foldkit's exact peer requirement. Hono is pinned to satisfy the frontend-frameworks peer dependency. Recheck these pins when upgrading.

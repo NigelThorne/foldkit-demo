@@ -16,7 +16,10 @@
     "test": "vitest run",
     "test:e2e": "pnpm build && playwright test",
     "format:check": "oxfmt --check",
-    "lint": "oxlint src"
+    "lint": "oxlint src alchemy.run.ts",
+    "cloudflare:login": "alchemy profile edit --profile default --add Cloudflare",
+    "cloudflare:plan": "alchemy plan --stage prod --profile default",
+    "cloudflare:deploy": "alchemy deploy --stage prod --profile default"
   },
   "dependencies": {
     "@effect/platform-browser": "4.0.0",
@@ -25,17 +28,22 @@
     "foldkit": "0.166.0"
   },
   "devDependencies": {
+    "@alchemy.run/frontend-frameworks": "2.0.0-beta.81",
+    "@effect/platform-bun": "4.0.0",
+    "@effect/platform-node": "4.0.0",
     "@foldkit/devtools": "0.166.0",
     "@foldkit/devtools-mcp": "0.24.1",
     "@foldkit/oxlint-plugin": "0.15.2",
     "@foldkit/vite-plugin": "0.26.1",
     "@playwright/test": "^1.64.0",
     "@tailwindcss/vite": "^4.3.3",
+    "alchemy": "2.0.0-beta.81",
     "happy-dom": "^20.14.5",
+    "hono": "^4.13.13",
     "oxfmt": "^0.66.0",
     "oxlint": "^1.85.0",
     "tailwindcss": "^4.3.3",
-    "typescript": "^7.0.2",
+    "typescript": "^6.0.3",
     "vite": "^8.3.1",
     "vitest": "^5.0.2"
   }

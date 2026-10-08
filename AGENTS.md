@@ -10,7 +10,7 @@ subtree_prompted: false
 
 ## Project Notes
 
-Little wins is a local-only Foldkit SPA demo. Count from zero to ten, then reset. No persistence, backend, analytics or deployment.
+Little wins is a Foldkit SPA demo. Count from zero to ten, then reset. No persistence, backend or analytics. Alchemy declares an assets-only Cloudflare deployment; consult README.md and get approval before cloud writes. Never add a paid service or billing upgrade implicitly.
 
 Use the pinned tools with `mise exec -- pnpm <script>`. Tests include Story, Scene and isolated Playwright checks. Do not automate the user's desktop or personal browser. The DevTools MCP relay is disabled.
 

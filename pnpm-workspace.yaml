@@ -1,2 +1,8 @@
 allowBuilds:
   msgpackr-extract: false
+  esbuild: true
+  workerd: true
+
+overrides:
+  '@effect/sql-d1': 4.0.0
+  '@effect/sql-sqlite-do': 4.0.0

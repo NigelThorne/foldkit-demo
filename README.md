@@ -51,7 +51,7 @@ Foldkit 0.166.0 and Effect 4.0.0 are pinned. This is browser-rendered, not an SS
 
 Existing live URL: [Little wins](https://littlewins-website-prod-emrpru6kgj4uf3uk.rapid-bush-3b2c.workers.dev)
 
-The live release is still the original browser-only counter. The shared-session update is locally verified and awaiting deployment approval.
+The shared-session release `fa83dc4` is live after explicit approval on 2026-10-08. Two isolated browsers verified concurrent increments, shared reset, reconnect, separate sessions, the ten-win cap and persistence after closing both clients. Cross-origin writes were rejected, and the mobile layout had no horizontal overflow or browser errors. Two disposable smoke-test sessions remain stored.
 
 `alchemy.run.ts` preserves the `LittleWins` stack, `Website` logical resource and existing Worker URL. The update adds the Worker entry point, `SESSIONS` binding and SQLite Durable Object class `WinSession`. API routes run the Worker first; static assets retain Cloudflare asset serving.
 
@@ -76,7 +76,7 @@ See [Durable Objects pricing](https://developers.cloudflare.com/durable-objects/
 
 ### State and recovery
 
-Alchemy state stays in ignored `.alchemy/state/`. The first-deploy backup is `.alchemy/backups/first-deploy/`, local only. Keep another private backup before and after the session deployment. Never delete state, run concurrent deployments or deploy from another checkout without the state.
+Alchemy state stays in ignored `.alchemy/state/`. Local-only backups include `.alchemy/backups/first-deploy/`, `.alchemy/backups/pre-sessions-20261008-113016/` and `.alchemy/backups/shared-sessions-20261008-113116/`. Keep another private backup before and after subsequent deployments. Never delete state, run concurrent deployments or deploy from another checkout without the state.
 
 After an approved release, check the emitted URL and two disposable sessions for live synchronization, reset, isolation and refresh persistence. These smoke tests write session data and must be included in release approval.
 

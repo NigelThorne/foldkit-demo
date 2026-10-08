@@ -17,7 +17,7 @@
     "test:e2e": "pnpm build && playwright test",
     "format:check": "oxfmt --check",
     "lint": "oxlint src alchemy.run.ts",
-    "cloudflare:login": "alchemy profile edit --profile default --add Cloudflare",
+    "cloudflare:login": "ALCHEMY_TUI=1 alchemy profile edit --profile default --add Cloudflare",
     "cloudflare:plan": "alchemy plan --stage prod --profile default",
     "cloudflare:deploy": "alchemy deploy --stage prod --profile default"
   },

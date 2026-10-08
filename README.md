@@ -49,7 +49,7 @@ mise exec -- pnpm cloudflare:plan
 mise exec -- pnpm cloudflare:deploy
 ```
 
-Login is interactive. Never paste credentials into chat or commit them. No billing upgrade, domain purchase, database, R2 bucket or cloud state service is configured. Cloudflare currently serves static assets with free unlimited requests and no storage charge. Extra server code or services would need a separate cost review.
+Login is interactive. The login script sets `ALCHEMY_TUI=1` because Alchemy otherwise mistakes a normal terminal with Pi in its PATH for an agent session and refuses to show prompts. This override is only for login, not deployment approval. Never paste credentials into chat or commit them. No billing upgrade, domain purchase, database, R2 bucket or cloud state service is configured. Cloudflare currently serves static assets with free unlimited requests and no storage charge. Extra server code or services would need a separate cost review.
 
 State stays in the ignored `.alchemy/state/` directory. Keep a private backup after deployment; never delete it to fix an error or deploy from another checkout without the state. Do not run concurrent deployments. This local-state approach is for this solo demo, not shared CI.
 

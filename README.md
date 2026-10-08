@@ -29,7 +29,7 @@ stack-manager health little-wins-local --json
 stack-manager urls little-wins-local --json
 ```
 
-The first available port starts at 21880. Use the URL returned by `urls`, not a hardcoded assumption. The startup command trusts only the current checkout's `mise.toml` for that process, installs the locked dependencies, builds the app and starts Miniflare. Node and pnpm remain pinned by the project.
+The first available port starts at 21880. Use the URL returned by `urls`, not a hardcoded assumption. `scripts/start-stack.sh` trusts only the current checkout's `mise.toml` for that process, installs locked dependencies while preferring the local package cache, builds the app and starts Miniflare. Startup output goes to `.local-state/stack-start.log` inside the stack worktree. Node and pnpm remain pinned by the project.
 
 Stack worktrees live under `../foldkit-demo.worktrees/`. New stacks start from the canonical checkout's committed `HEAD`; uncommitted changes are not copied. Edit the selected worktree, then stop/start to rebuild. This runner serves a production build, not hot reload.
 
